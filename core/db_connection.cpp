@@ -4,20 +4,6 @@
 
 MYSQL* getConnection() {
 
-    const char* host = std::getenv("MYSQL_HOST");
-    const char* user = std::getenv("MYSQL_USER");
-    const char* password = std::getenv("MYSQL_PASSWORD");
-    const char* database = std::getenv("MYSQL_DATABASE");
-    const char* portStr = std::getenv("MYSQL_PORT");
-
-    // Check Railway environment variables
-    if (!host || !user || !password || !database || !portStr) {
-        std::cerr << "Database environment variables are missing!" << std::endl;
-        return NULL;
-    }
-
-    unsigned int port = std::atoi(portStr);
-
     MYSQL* conn = mysql_init(NULL);
 
     if (conn == NULL) {
@@ -25,26 +11,37 @@ MYSQL* getConnection() {
         return NULL;
     }
 
-    if (mysql_real_connect(
-            conn,
-            host,
-            user,
-            password,
-            database,
-            port,
-            NULL,
-            0
-        ) == NULL) {
+    const char* host = std::getenv("MYSQL_HOST");
+    const char* user = std::getenv("MYSQL_USER");
+    const char* password = std::getenv("MYSQL_PASSWORD");
+    const char* database = std::getenv("MYSQL_DATABASE");
+    const char* portStr = std::getenv("MYSQL_PORT");
 
+    if (!host || !user || !password || !database || !portStr) {
+        std::cerr << "Database environment variables are missing!" << std::endl;
+        return NULL;
+    }
+
+    int port = std::atoi(portStr);
+
+    conn = mysql_real_connect(
+        conn,
+        host,
+        user,
+        password,
+        database,
+        port,
+        NULL,
+        0
+    );
+
+    if (conn == NULL) {
         std::cerr << "Connection failed: "
                   << mysql_error(conn)
                   << std::endl;
 
-        mysql_close(conn);
         return NULL;
     }
-
-    std::cout << "Connected to MySQL successfully!" << std::endl;
 
     return conn;
 }
