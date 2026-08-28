@@ -1,56 +1,58 @@
-#include "crow.h"
-#include <mysql.h>
 #include <iostream>
 #include <string>
+#include <sstream>
 #include <cstdlib>
+#include <mysql/mysql.h>
 
-// ================================
-// DATABASE CONNECTION
-// ================================
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
 
 MYSQL* connectDatabase()
 {
-    MYSQL* conn = mysql_init(NULL);
+    MYSQL* conn = mysql_init(nullptr);
 
-    if (conn == NULL)
+    if (conn == nullptr)
     {
-        std::cout << "mysql_init failed\n";
-        return NULL;
+        std::cerr << "mysql_init failed\n";
+        return nullptr;
     }
 
-    // Read database credentials from environment variables
+    // Railway environment variables
     const char* host = std::getenv("MYSQLHOST");
     const char* user = std::getenv("MYSQLUSER");
     const char* password = std::getenv("MYSQLPASSWORD");
     const char* database = std::getenv("MYSQLDATABASE");
-    const char* portStr = std::getenv("MYSQLPORT");
+    const char* portEnv = std::getenv("MYSQLPORT");
 
-    // Local development defaults
-    if (!host) host = "localhost";
-    if (!user) user = "root";
-    if (!database) database = "delivery";
+    // Local fallback values
+    if (host == nullptr) host = "localhost";
+    if (user == nullptr) user = "root";
+    if (password == nullptr) password = "ANUHYA";
+    if (database == nullptr) database = "delivery";
 
-    unsigned int port = portStr
-        ? static_cast<unsigned int>(std::stoi(portStr))
-        : 3306;
+    unsigned int port = 3306;
 
-    conn = mysql_real_connect(
-        conn,
-        host,
-        user,
-        password,
-        database,
-        port,
-        NULL,
-        0
-    );
-
-    if (conn == NULL)
+    if (portEnv != nullptr)
     {
-        std::cout << "Database connection failed: "
+        port = std::stoi(portEnv);
+    }
+
+    if (mysql_real_connect(
+            conn,
+            host,
+            user,
+            password,
+            database,
+            port,
+            nullptr,
+            0) == nullptr)
+    {
+        std::cerr << "Database connection failed: "
                   << mysql_error(conn) << "\n";
 
-        return NULL;
+        mysql_close(conn);
+        return nullptr;
     }
 
     std::cout << "Database connected successfully!\n";
@@ -59,376 +61,513 @@ MYSQL* connectDatabase()
 }
 
 
-// ================================
-// MAIN FUNCTION
-// ================================
+// Escape JSON strings
+std::string escapeJson(const char* value)
+{
+    if (value == nullptr)
+        return "";
+
+    std::string input(value);
+    std::string output;
+
+    for (char c : input)
+    {
+        switch (c)
+        {
+            case '"':
+                output += "\\\"";
+                break;
+
+            case '\\':
+                output += "\\\\";
+                break;
+
+            case '\n':
+                output += "\\n";
+                break;
+
+            case '\r':
+                output += "\\r";
+                break;
+
+            case '\t':
+                output += "\\t";
+                break;
+
+            default:
+                output += c;
+        }
+    }
+
+    return output;
+}
+
+
+// GET /api/orders
+std::string getOrders(MYSQL* conn)
+{
+    const char* query =
+        "SELECT id, dsp_id, driver_id, "
+        "pickup_address, delivery_address, status, "
+        "created_at, sla_deadline "
+        "FROM orders ORDER BY id DESC";
+
+    if (mysql_query(conn, query) != 0)
+    {
+        std::string error = mysql_error(conn);
+
+        return "{\"error\":\"" +
+               escapeJson(error.c_str()) +
+               "\"}";
+    }
+
+    MYSQL_RES* result = mysql_store_result(conn);
+
+    if (result == nullptr)
+    {
+        return "{\"error\":\"Could not retrieve orders\"}";
+    }
+
+    std::stringstream json;
+
+    json << "{\"orders\":[";
+
+    MYSQL_ROW row;
+
+    bool first = true;
+
+    while ((row = mysql_fetch_row(result)))
+    {
+        if (!first)
+        {
+            json << ",";
+        }
+
+        first = false;
+
+        json << "{";
+
+        json << "\"id\":"
+             << (row[0] ? row[0] : "0") << ",";
+
+        json << "\"dsp_id\":"
+             << (row[1] ? row[1] : "0") << ",";
+
+        if (row[2] != nullptr)
+        {
+            json << "\"driver_id\":"
+                 << row[2] << ",";
+        }
+        else
+        {
+            json << "\"driver_id\":null,";
+        }
+
+        json << "\"pickup_address\":\""
+             << escapeJson(row[3]) << "\",";
+
+        json << "\"delivery_address\":\""
+             << escapeJson(row[4]) << "\",";
+
+        json << "\"status\":\""
+             << escapeJson(row[5]) << "\",";
+
+        json << "\"created_at\":\""
+             << escapeJson(row[6]) << "\",";
+
+        json << "\"sla_deadline\":\""
+             << escapeJson(row[7]) << "\"";
+
+        json << "}";
+    }
+
+    json << "]}";
+
+    mysql_free_result(result);
+
+    return json.str();
+}
+
+
+// GET /api/metrics
+std::string getMetrics(MYSQL* conn)
+{
+    const char* query =
+        "SELECT "
+        "COUNT(*) AS total, "
+        "COALESCE(SUM(status = 'delivered'), 0) AS delivered, "
+        "COALESCE(SUM(status = 'failed'), 0) AS failed, "
+        "COALESCE(SUM(status != 'delivered'), 0) AS pending "
+        "FROM orders";
+
+    if (mysql_query(conn, query) != 0)
+    {
+        std::string error = mysql_error(conn);
+
+        return "{\"error\":\"" +
+               escapeJson(error.c_str()) +
+               "\"}";
+    }
+
+    MYSQL_RES* result = mysql_store_result(conn);
+
+    if (result == nullptr)
+    {
+        return "{\"error\":\"Could not retrieve metrics\"}";
+    }
+
+    MYSQL_ROW row = mysql_fetch_row(result);
+
+    std::stringstream json;
+
+    json << "{";
+
+    json << "\"totalOrders\":"
+         << (row && row[0] ? row[0] : "0") << ",";
+
+    json << "\"delivered\":"
+         << (row && row[1] ? row[1] : "0") << ",";
+
+    json << "\"failed\":"
+         << (row && row[2] ? row[2] : "0") << ",";
+
+    json << "\"pending\":"
+         << (row && row[3] ? row[3] : "0");
+
+    json << "}";
+
+    mysql_free_result(result);
+
+    return json.str();
+}
+
+
+// GET /api/sla-violations
+std::string getSLAViolations(MYSQL* conn)
+{
+    const char* query =
+        "SELECT id, status, sla_deadline "
+        "FROM orders "
+        "WHERE sla_deadline < NOW() "
+        "AND status != 'delivered'";
+
+    if (mysql_query(conn, query) != 0)
+    {
+        std::string error = mysql_error(conn);
+
+        return "{\"error\":\"" +
+               escapeJson(error.c_str()) +
+               "\"}";
+    }
+
+    MYSQL_RES* result = mysql_store_result(conn);
+
+    if (result == nullptr)
+    {
+        return "{\"error\":\"Could not retrieve SLA violations\"}";
+    }
+
+    std::stringstream json;
+
+    json << "{\"violations\":[";
+
+    MYSQL_ROW row;
+
+    bool first = true;
+
+    while ((row = mysql_fetch_row(result)))
+    {
+        if (!first)
+        {
+            json << ",";
+        }
+
+        first = false;
+
+        json << "{";
+
+        json << "\"orderId\":"
+             << (row[0] ? row[0] : "0") << ",";
+
+        json << "\"status\":\""
+             << escapeJson(row[1]) << "\",";
+
+        json << "\"slaDeadline\":\""
+             << escapeJson(row[2]) << "\"";
+
+        json << "}";
+    }
+
+    json << "]}";
+
+    mysql_free_result(result);
+
+    return json.str();
+}
+
+
+// Send HTTP response
+void sendResponse(
+    int clientSocket,
+    const std::string& body,
+    int statusCode = 200
+)
+{
+    std::string statusText =
+        statusCode == 200 ? "OK" :
+        statusCode == 404 ? "Not Found" :
+        "Internal Server Error";
+
+    std::string response =
+        "HTTP/1.1 " +
+        std::to_string(statusCode) +
+        " " +
+        statusText +
+        "\r\n";
+
+    response +=
+        "Content-Type: application/json\r\n";
+
+    // CORS for frontend
+    response +=
+        "Access-Control-Allow-Origin: *\r\n";
+
+    response +=
+        "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
+
+    response +=
+        "Access-Control-Allow-Headers: Content-Type\r\n";
+
+    response +=
+        "Content-Length: " +
+        std::to_string(body.length()) +
+        "\r\n";
+
+    response +=
+        "Connection: close\r\n\r\n";
+
+    response += body;
+
+    send(
+        clientSocket,
+        response.c_str(),
+        response.length(),
+        0
+    );
+}
+
 
 int main()
 {
     MYSQL* conn = connectDatabase();
 
-    if (conn == NULL)
+    if (conn == nullptr)
     {
         return 1;
     }
 
-    crow::SimpleApp app;
 
+    // Railway provides PORT
+    const char* portEnv = std::getenv("PORT");
 
-    // ============================================
-    // API 1: GET ALL ORDERS
-    // ============================================
+    int port = 18080;
 
-    CROW_ROUTE(app, "/api/orders")
-    .methods(crow::HTTPMethod::GET)
-    ([conn]()
+    if (portEnv != nullptr)
     {
-        crow::json::wvalue response;
-        crow::json::wvalue::list orders;
-
-        const char* query =
-            "SELECT id, dsp_id, driver_id, "
-            "pickup_address, delivery_address, "
-            "status, created_at, sla_deadline "
-            "FROM orders "
-            "ORDER BY id DESC";
-
-        if (mysql_query(conn, query) != 0)
-        {
-            crow::response res(
-                500,
-                std::string("{\"error\":\"") +
-                mysql_error(conn) +
-                "\"}"
-            );
-
-            res.set_header(
-                "Access-Control-Allow-Origin",
-                "*"
-            );
-
-            return res;
-        }
+        port = std::stoi(portEnv);
+    }
 
 
-        MYSQL_RES* result = mysql_store_result(conn);
+    int serverSocket = socket(
+        AF_INET,
+        SOCK_STREAM,
+        0
+    );
 
-        if (result == NULL)
-        {
-            crow::response res(
-                500,
-                "{\"error\":\"Could not retrieve orders\"}"
-            );
-
-            res.set_header(
-                "Access-Control-Allow-Origin",
-                "*"
-            );
-
-            return res;
-        }
-
-
-        MYSQL_ROW row;
-
-        while ((row = mysql_fetch_row(result)))
-        {
-            crow::json::wvalue order;
-
-            order["id"] =
-                row[0] ? std::stoi(row[0]) : 0;
-
-            order["dsp_id"] =
-                row[1] ? std::stoi(row[1]) : 0;
-
-            order["driver_id"] =
-                row[2] ? std::stoi(row[2]) : 0;
-
-            order["pickup_address"] =
-                row[3] ? row[3] : "";
-
-            order["delivery_address"] =
-                row[4] ? row[4] : "";
-
-            order["status"] =
-                row[5] ? row[5] : "";
-
-            order["created_at"] =
-                row[6] ? row[6] : "";
-
-            order["sla_deadline"] =
-                row[7] ? row[7] : "";
-
-            orders.push_back(std::move(order));
-        }
-
-        mysql_free_result(result);
-
-        response["orders"] = std::move(orders);
-
-        crow::response res(response);
-
-        // CORS
-        res.set_header(
-            "Access-Control-Allow-Origin",
-            "*"
-        );
-
-        res.set_header(
-            "Access-Control-Allow-Methods",
-            "GET, POST, OPTIONS"
-        );
-
-        res.set_header(
-            "Access-Control-Allow-Headers",
-            "Content-Type"
-        );
-
-        return res;
-    });
-
-
-    // ============================================
-    // API 2: DASHBOARD METRICS
-    // ============================================
-
-    CROW_ROUTE(app, "/api/metrics")
-    .methods(crow::HTTPMethod::GET)
-    ([conn]()
+    if (serverSocket < 0)
     {
-        crow::json::wvalue response;
+        std::cerr << "Could not create socket\n";
 
-        const char* query =
-            "SELECT "
-            "COUNT(*) AS total, "
-            "SUM(status = 'delivered') AS delivered, "
-            "SUM(status != 'delivered') AS pending "
-            "FROM orders";
+        mysql_close(conn);
 
-        if (mysql_query(conn, query) != 0)
-        {
-            crow::response res(
-                500,
-                std::string("{\"error\":\"") +
-                mysql_error(conn) +
-                "\"}"
-            );
-
-            res.set_header(
-                "Access-Control-Allow-Origin",
-                "*"
-            );
-
-            return res;
-        }
+        return 1;
+    }
 
 
-        MYSQL_RES* result = mysql_store_result(conn);
+    int opt = 1;
 
-        if (result == NULL)
-        {
-            crow::response res(
-                500,
-                "{\"error\":\"Could not retrieve metrics\"}"
-            );
-
-            res.set_header(
-                "Access-Control-Allow-Origin",
-                "*"
-            );
-
-            return res;
-        }
+    setsockopt(
+        serverSocket,
+        SOL_SOCKET,
+        SO_REUSEADDR,
+        &opt,
+        sizeof(opt)
+    );
 
 
-        MYSQL_ROW row = mysql_fetch_row(result);
+    sockaddr_in serverAddress{};
 
-        response["totalOrders"] =
-            row && row[0] ? std::stoi(row[0]) : 0;
+    serverAddress.sin_family = AF_INET;
 
-        response["delivered"] =
-            row && row[1] ? std::stoi(row[1]) : 0;
+    // Railway needs 0.0.0.0
+    serverAddress.sin_addr.s_addr = INADDR_ANY;
 
-        response["pending"] =
-            row && row[2] ? std::stoi(row[2]) : 0;
-
-        mysql_free_result(result);
-
-        crow::response res(response);
-
-        res.set_header(
-            "Access-Control-Allow-Origin",
-            "*"
-        );
-
-        return res;
-    });
+    serverAddress.sin_port =
+        htons(port);
 
 
-    // ============================================
-    // API 3: ACTIVE DRIVERS
-    // ============================================
-
-    CROW_ROUTE(app, "/api/active-drivers")
-    .methods(crow::HTTPMethod::GET)
-    ([conn]()
+    if (bind(
+            serverSocket,
+            (sockaddr*)&serverAddress,
+            sizeof(serverAddress)
+        ) < 0)
     {
-        crow::json::wvalue response;
+        std::cerr << "Bind failed\n";
 
-        const char* query =
-            "SELECT COUNT(DISTINCT driver_id) "
-            "FROM orders "
-            "WHERE driver_id IS NOT NULL "
-            "AND status != 'delivered'";
+        close(serverSocket);
 
-        if (mysql_query(conn, query) != 0)
-        {
-            crow::response res(
-                500,
-                std::string("{\"error\":\"") +
-                mysql_error(conn) +
-                "\"}"
-            );
+        mysql_close(conn);
 
-            res.set_header(
-                "Access-Control-Allow-Origin",
-                "*"
-            );
-
-            return res;
-        }
-
-        MYSQL_RES* result = mysql_store_result(conn);
-
-        MYSQL_ROW row = mysql_fetch_row(result);
-
-        response["activeDrivers"] =
-            row && row[0] ? std::stoi(row[0]) : 0;
-
-        mysql_free_result(result);
-
-        crow::response res(response);
-
-        res.set_header(
-            "Access-Control-Allow-Origin",
-            "*"
-        );
-
-        return res;
-    });
+        return 1;
+    }
 
 
-    // ============================================
-    // API 4: SLA VIOLATIONS
-    // ============================================
-
-    CROW_ROUTE(app, "/api/sla-violations")
-    .methods(crow::HTTPMethod::GET)
-    ([conn]()
+    if (listen(serverSocket, 10) < 0)
     {
-        crow::json::wvalue response;
-        crow::json::wvalue::list violations;
+        std::cerr << "Listen failed\n";
 
-        const char* query =
-            "SELECT id, status, sla_deadline "
-            "FROM orders "
-            "WHERE sla_deadline < NOW() "
-            "AND status != 'delivered'";
+        close(serverSocket);
 
-        if (mysql_query(conn, query) != 0)
-        {
-            crow::response res(
-                500,
-                std::string("{\"error\":\"") +
-                mysql_error(conn) +
-                "\"}"
-            );
+        mysql_close(conn);
 
-            res.set_header(
-                "Access-Control-Allow-Origin",
-                "*"
-            );
-
-            return res;
-        }
+        return 1;
+    }
 
 
-        MYSQL_RES* result = mysql_store_result(conn);
+    std::cout << "\n=================================\n";
+    std::cout << "Delivery Management API Running\n";
+    std::cout << "Port: " << port << "\n";
+    std::cout << "=================================\n";
 
-        if (result == NULL)
-        {
-            crow::response res(
-                500,
-                "{\"error\":\"Could not retrieve SLA violations\"}"
-            );
-
-            res.set_header(
-                "Access-Control-Allow-Origin",
-                "*"
-            );
-
-            return res;
-        }
+    std::cout << "Endpoints:\n";
+    std::cout << "/api/orders\n";
+    std::cout << "/api/metrics\n";
+    std::cout << "/api/sla-violations\n";
 
 
-        MYSQL_ROW row;
+    while (true)
+    {
+        sockaddr_in clientAddress{};
 
-        while ((row = mysql_fetch_row(result)))
-        {
-            crow::json::wvalue violation;
+        socklen_t clientLength =
+            sizeof(clientAddress);
 
-            violation["orderId"] =
-                row[0] ? std::stoi(row[0]) : 0;
 
-            violation["status"] =
-                row[1] ? row[1] : "";
-
-            violation["slaDeadline"] =
-                row[2] ? row[2] : "";
-
-            violations.push_back(std::move(violation));
-        }
-
-        mysql_free_result(result);
-
-        response["violations"] =
-            std::move(violations);
-
-        crow::response res(response);
-
-        res.set_header(
-            "Access-Control-Allow-Origin",
-            "*"
+        int clientSocket = accept(
+            serverSocket,
+            (sockaddr*)&clientAddress,
+            &clientLength
         );
 
-        return res;
-    });
+
+        if (clientSocket < 0)
+        {
+            continue;
+        }
 
 
-    // ============================================
-    // START SERVER
-    // ============================================
+        char buffer[4096] = {0};
 
-    std::cout << "\n====================================\n";
-    std::cout << " DELIVERY MANAGEMENT API SERVER\n";
-    std::cout << "====================================\n";
 
-    std::cout << "\nAPI running at:\n";
-    std::cout << "http://127.0.0.1:18080\n";
+        int bytesReceived =
+            recv(
+                clientSocket,
+                buffer,
+                sizeof(buffer) - 1,
+                0
+            );
 
-   const char* portEnv = std::getenv("PORT");
 
-int serverPort = portEnv
-    ? std::stoi(portEnv)
-    : 18080;
+        if (bytesReceived <= 0)
+        {
+            close(clientSocket);
+            continue;
+        }
 
-std::cout << "Server running on port: "
-          << serverPort << "\n";
 
-app.port(serverPort)
-   .multithreaded()
-   .run();
+        std::string request(buffer);
 
+
+        std::string body;
+        int statusCode = 200;
+
+
+        // GET /api/orders
+        if (
+            request.find(
+                "GET /api/orders "
+            ) != std::string::npos
+        )
+        {
+            body = getOrders(conn);
+        }
+
+
+        // GET /api/metrics
+        else if (
+            request.find(
+                "GET /api/metrics "
+            ) != std::string::npos
+        )
+        {
+            body = getMetrics(conn);
+        }
+
+
+        // GET /api/sla-violations
+        else if (
+            request.find(
+                "GET /api/sla-violations "
+            ) != std::string::npos
+        )
+        {
+            body = getSLAViolations(conn);
+        }
+
+
+        // Health check
+        else if (
+            request.find(
+                "GET / "
+            ) != std::string::npos
+        )
+        {
+            body =
+                "{\"status\":\"Delivery API is running\"}";
+        }
+
+
+        else
+        {
+            body =
+                "{\"error\":\"Endpoint not found\"}";
+
+            statusCode = 404;
+        }
+
+
+        sendResponse(
+            clientSocket,
+            body,
+            statusCode
+        );
+
+
+        close(clientSocket);
+    }
+
+
+    close(serverSocket);
 
     mysql_close(conn);
 
