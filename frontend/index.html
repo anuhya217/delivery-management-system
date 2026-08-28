@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Delivery Management System</title>
+
+    <style>
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f9;
+            display: flex;
+            min-height: 100vh;
+            color: #1f2937;
+        }
+
+
+        /* ================= SIDEBAR ================= */
+
+        .sidebar {
+            width: 245px;
+            min-height: 100vh;
+            background: #273449;
+            color: white;
+            padding: 25px 12px;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 45px;
+            padding-left: 15px;
+        }
+
+        .menu {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .menu-item {
+            padding: 16px 20px;
+            border-radius: 10px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .menu-item:hover,
+        .menu-item.active {
+            background: #3d4a5e;
+        }
+
+
+        /* ================= MAIN CONTENT ================= */
+
+        .main {
+            flex: 1;
+            padding: 38px 40px;
+        }
+
+        .main h1 {
+            font-size: 38px;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 19px;
+            color: #64748b;
+            margin-bottom: 32px;
+        }
+
+
+        /* ================= DASHBOARD CARDS ================= */
+
+        .cards {
+            display: grid;
+            grid-template-columns:
+                repeat(4, 1fr);
+
+            gap: 22px;
+            margin-bottom: 32px;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 14px;
+            box-shadow:
+                0 4px 14px rgba(0,0,0,0.08);
+        }
+
+        .card h3 {
+            font-size: 18px;
+            color: #4b5563;
+            margin-bottom: 20px;
+        }
+
+        .number {
+            font-size: 34px;
+            font-weight: bold;
+        }
+
+
+        /* ================= ORDERS SECTION ================= */
+
+        .orders-container {
+            background: white;
+            padding: 30px;
+            border-radius: 14px;
+
+            box-shadow:
+                0 4px 14px rgba(0,0,0,0.08);
+        }
+
+        .orders-title {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 22px;
+        }
+
+        .table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 900px;
+        }
+
+        th {
+            background: #273449;
+            color: white;
+            padding: 18px;
+            text-align: left;
+            font-size: 16px;
+        }
+
+        td {
+            padding: 16px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        tr:hover {
+            background: #f8fafc;
+        }
+
+
+        /* ================= STATUS ================= */
+
+        .status {
+            padding: 7px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            background: #e5e7eb;
+        }
+
+
+        /* ================= RESPONSIVE ================= */
+
+        @media (max-width: 1000px) {
+
+            .cards {
+                grid-template-columns:
+                    repeat(2, 1fr);
+            }
+
+        }
+
+        @media (max-width: 700px) {
+
+            body {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                min-height: auto;
+            }
+
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            .main {
+                padding: 25px;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+    <!-- ================= SIDEBAR ================= -->
+
+    <aside class="sidebar">
+
+        <div class="logo">
+            🚚 DeliveryMS
+        </div>
+
+
+        <div class="menu">
+
+            <div class="menu-item active">
+                📊 Dashboard
+            </div>
+
+            <div class="menu-item">
+                📦 Orders
+            </div>
+
+            <div class="menu-item">
+                🚚 Drivers
+            </div>
+
+            <div class="menu-item">
+                🏢 DSPs
+            </div>
+
+        </div>
+
+    </aside>
+
+
+
+    <!-- ================= MAIN ================= -->
+
+    <main class="main">
+
+        <h1>
+            Delivery Dashboard
+        </h1>
+
+        <p class="subtitle">
+            Real-time delivery management overview
+        </p>
+
+
+        <!-- ================= CARDS ================= -->
+
+        <section class="cards">
+
+            <div class="card">
+
+                <h3>Total Orders</h3>
+
+                <div
+                    class="number"
+                    id="totalOrders"
+                >
+                    0
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <h3>Delivered</h3>
+
+                <div
+                    class="number"
+                    id="deliveredOrders"
+                >
+                    0
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <h3>Pending</h3>
+
+                <div
+                    class="number"
+                    id="pendingOrders"
+                >
+                    0
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <h3>Active Drivers</h3>
+
+                <div
+                    class="number"
+                    id="activeDrivers"
+                >
+                    0
+                </div>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- ================= ORDERS TABLE ================= -->
+
+        <section class="orders-container">
+
+            <div class="orders-title">
+                📦 Orders
+            </div>
+
+
+            <div class="table-wrapper">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+
+                            <th>Order ID</th>
+                            <th>DSP ID</th>
+                            <th>Driver ID</th>
+                            <th>Pickup</th>
+                            <th>Delivery</th>
+                            <th>Status</th>
+                            <th>SLA Deadline</th>
+
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody id="ordersTable">
+
+                        <tr>
+
+                            <td
+                                colspan="7"
+                                style="text-align:center"
+                            >
+                                Loading orders...
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </section>
+
+
+    </main>
+
+
+
+    <!-- ================= JAVASCRIPT ================= -->
+
+    <script>
+
+        // ============================================
+        // API URL
+        // ============================================
+
+        const API_URL =
+            "http://127.0.0.1:18080/api/orders";
+
+
+        // ============================================
+        // LOAD ORDERS
+        // ============================================
+
+        async function loadOrders()
+        {
+            try
+            {
+                console.log(
+                    "Connecting to API:",
+                    API_URL
+                );
+
+
+                const response =
+                    await fetch(API_URL);
+
+
+                console.log(
+                    "Response Status:",
+                    response.status
+                );
+
+
+                if (!response.ok)
+                {
+                    throw new Error(
+                        "API Error: " +
+                        response.status
+                    );
+                }
+
+
+                const data =
+                    await response.json();
+
+
+                console.log(
+                    "Orders received:",
+                    data
+                );
+
+
+                const orders =
+                    data.orders || [];
+
+
+                // =====================================
+                // TOTAL ORDERS
+                // =====================================
+
+                document
+                    .getElementById("totalOrders")
+                    .textContent =
+                    orders.length;
+
+
+                // =====================================
+                // DELIVERED ORDERS
+                // =====================================
+
+                const delivered =
+                    orders.filter(order =>
+                        order.status === "delivered"
+                    ).length;
+
+
+                document
+                    .getElementById("deliveredOrders")
+                    .textContent =
+                    delivered;
+
+
+                // =====================================
+                // PENDING ORDERS
+                // =====================================
+
+                const pending =
+                    orders.filter(order =>
+                        order.status !== "delivered"
+                    ).length;
+
+
+                document
+                    .getElementById("pendingOrders")
+                    .textContent =
+                    pending;
+
+
+                // =====================================
+                // ACTIVE DRIVERS
+                // =====================================
+
+                const activeDrivers =
+                    new Set(
+                        orders
+                            .filter(order =>
+                                order.driver_id &&
+                                order.status !== "delivered"
+                            )
+                            .map(order =>
+                                order.driver_id
+                            )
+                    );
+
+
+                document
+                    .getElementById("activeDrivers")
+                    .textContent =
+                    activeDrivers.size;
+
+
+                // =====================================
+                // ORDERS TABLE
+                // =====================================
+
+                const table =
+                    document.getElementById(
+                        "ordersTable"
+                    );
+
+
+                table.innerHTML = "";
+
+
+                // =====================================
+                // EMPTY DATA
+                // =====================================
+
+                if (orders.length === 0)
+                {
+                    table.innerHTML = `
+                        <tr>
+                            <td
+                                colspan="7"
+                                style="text-align:center; padding:20px;"
+                            >
+                                No orders found
+                            </td>
+                        </tr>
+                    `;
+
+                    return;
+                }
+
+
+                // =====================================
+                // ADD ORDERS TO TABLE
+                // =====================================
+
+                orders.forEach(order =>
+                {
+                    const row =
+                        document.createElement("tr");
+
+
+                    row.innerHTML = `
+                        <td>${order.id}</td>
+
+                        <td>${order.dsp_id}</td>
+
+                        <td>
+                            ${
+                                order.driver_id
+                                ? order.driver_id
+                                : "Not Assigned"
+                            }
+                        </td>
+
+                        <td>
+                            ${order.pickup_address}
+                        </td>
+
+                        <td>
+                            ${order.delivery_address}
+                        </td>
+
+                        <td>
+                            <span class="status">
+                                ${order.status}
+                            </span>
+                        </td>
+
+                        <td>
+                            ${order.sla_deadline}
+                        </td>
+                    `;
+
+
+                    table.appendChild(row);
+
+                });
+
+            }
+
+
+            // ============================================
+            // ERROR
+            // ============================================
+
+            catch (error)
+            {
+                console.error(
+                    "Error loading orders:",
+                    error
+                );
+
+
+                document
+                    .getElementById(
+                        "ordersTable"
+                    )
+                    .innerHTML = `
+                        <tr>
+                            <td
+                                colspan="7"
+                                style="
+                                    text-align:center;
+                                    padding:20px;
+                                    color:red;
+                                "
+                            >
+                                Cannot connect to API.
+                                Check server.exe.
+                            </td>
+                        </tr>
+                    `;
+
+            }
+
+        }
+
+
+        // ============================================
+        // START
+        // ============================================
+
+        loadOrders();
+
+
+        // ============================================
+        // AUTO REFRESH EVERY 5 SECONDS
+        // ============================================
+
+        setInterval(
+            loadOrders,
+            5000
+        );
+
+    </script>
+
+
+</body>
+
+</html>

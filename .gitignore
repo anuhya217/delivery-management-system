@@ -1,0 +1,21 @@
+# Build files
+*.exe
+*.obj
+*.o
+
+# DLL files
+*.dll
+
+# Visual Studio
+.vs/
+.vscode/
+
+# CMake build folders
+build/
+cmake-build-*/
+
+# Environment files / secrets
+.env
+
+# Temporary files
+*.log
