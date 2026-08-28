@@ -1,5 +1,5 @@
-const API_URL = "http://127.0.0.1:18080/api/orders";
-
+const API_URL =
+    "https://delivery-management-system-production-f5b6.up.railway.app/api/orders";
 async function loadOrders() {
 
     console.log("Loading orders from:", API_URL);
